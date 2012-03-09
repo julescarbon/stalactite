@@ -24,165 +24,184 @@
 
   var indexed = []; // List of all dom elements already applied.
 
-  $.fn.stalactite = function(customOptions) {
+  $.stalactite = function(el, customOptions) {
 
     var resizing = false;
-    var options = $.extend({}, $.fn.stalactite.defaultOptions, customOptions);
+    var options = $.extend({}, $.stalactite.defaultOptions, customOptions);
         options.cssSelector = options.cssPrefix + '-loaded';
 
-    return this.each(function() {
+    var base = this;
+    base.el = el;
+    base.$el = $(el);
+    base.$el.data("stalactite", base);
+    
+    base.stopped = false;
+    base.stop = function() {
+      if (window.stop !== undefined) {
+        window.stop();
+      }
+      else if (document.execCommand !== undefined) {
+        document.execCommand("Stop", false);
+      }
+      base.stopped = true;
+      removeLoader(options);
+    }
+    
+    var $this = $(el);
+    var packTimeout = null;
+    var $newElems = prep($this, options);
+    
+    appendLoader($this);
 
-      var $this = $(this);
-      var packTimeout = null;
-      var $newElems = prep($this, options);
-      appendLoader($this);
+    var prevThisIndex = index($this);
+    var params = {
+      row: 0,
+      prevMinIndex: 0,
+      prevMaxIndex: 0,
+      i: 0
+    };
 
-      var prevThisIndex = index($this);
-      var params = {
-        row: 0,
-        prevMinIndex: 0,
-        prevMaxIndex: 0,
-        i: 0
-      };
+    // Check for elements already packed.
+    if (prevThisIndex >= 0) {
 
-      // Check for elements already packed.
-      if (prevThisIndex >= 0) {
-
-        if ($this.children().index($newElems[0]) > 0) {
-          params = indexed[prevThisIndex];
-        }
-
+      if ($this.children().index($newElems[0]) > 0) {
+        params = indexed[prevThisIndex];
       }
 
-      var row = params.row;
+    }
 
-      // Bind events for window resizing
-      if (options.fluid) {
-        $this.css('width', 'auto');
-        $(window).bind('resize', function() {
-          if (packTimeout) {
-            clearTimeout(packTimeout);
-          } else {
-            appendLoader($this);
-          }
-          resizing = true;
-          packTimeout = setTimeout(function() {
-            resizing = false;
-            packTimeout = null;
-            row = 0;
-            params = {
-              row: 0,
-              prevMinIndex: 0,
-              prevMaxIndex: 0,
-              i: 0
-            };
-            indexed = [];
-            pack($this, calculateOffset, params, options);
-          }, 2000);
-        });
-      }
+    var row = params.row;
 
-      // Gather all assets in the element
-      var selector = 'img, embed, iframe, audio, video, div';
-      var $assets = $this
-        .children()
-        .not(options.cssSelector)
-        .find(selector);
-      var $content = $this
-        .find(':not(' + selector + ')');
-
-      var loadedImgs = 0;
-
-      // Make sure all the elements are loaded before we start packing
-      if ($assets.length > 0) {
-        $assets.each(function(i) {
-          var $asset = $(this).load(function() {
-            animateIn($asset);
-            loadedImgs++;
-            if (loadedImgs >= $assets.length) {
-              pack($this, calculateOffset, params, options);
-            }
-          });
-        });
-      } else {
-        pack($this, calculateOffset, params, options);
-      }
-
-      // This measures the distance between the current child element and the
-      // element `relative`ly above it. Then animates to the pack.
-      function calculateOffset($content, origin, prevMinIndex, prevMaxIndex, i) {
-
-        if (i >= $content.length) {
-          if (indexed[prevThisIndex]) { // update
-            indexed[prevThisIndex] = $.extend(indexed[prevThisIndex], params);
-          } else {  // push a new instance
-            indexed.push($.extend({ dom: $content.parent('div')[0] }, params));
-          }
-          options.complete.apply(this);
-          removeLoader(options);
-          return;
-        } else if (resizing && options.fluid) {
-          removeLoader(options);
-          return;
-        }
-
-        var $this = $($content[i]); 
-        var $prev = $($content[i - 1]);
-        var x1 = $this.offset().left, x2 = x1 + $this.outerWidth(),
-            y1 = $this.offset().top, y2 = y1 + $this.outerHeight();
-
-        if ($prev.length > 0) {
-          if (x1 < $prev.offset().left && i > 0 && i !== params.i) {
-            row++;
-            params.row = row;
-            params.prevMinIndex = prevMinIndex = prevMaxIndex;
-            params.prevMaxIndex = prevMaxIndex = i - 1;
-            params.i = i;
-          }
-        }
-
-        var offsetY = 0;
-
-        if (row > 0) {
-
-          for (var j = prevMaxIndex; j >= prevMinIndex; j--) {
-
-            var $prev = $($content[j]);
-            var a1 = $prev.offset().left, a2 = a1 + $prev.outerWidth(),
-                b1 = $prev.offset().top, b2 = b1 + $prev.outerHeight();
-
-            if (a1 >= x2 || a2 <= x1) {
-              continue;
-            } else if (offsetY < b2) {
-              offsetY = b2;
-            }
-
-          }
-
-          offsetY = offsetY - y1;
-
+    // Bind events for window resizing
+    if (options.fluid) {
+      $this.css('width', 'auto');
+      $(window).bind('resize', function() {
+        if (packTimeout) {
+          clearTimeout(packTimeout);
         } else {
-          offsetY = - parseInt($this.css('margin-top').toString().replace('px', ''));
+          appendLoader($this);
         }
+        resizing = true;
+        packTimeout = setTimeout(function() {
+          resizing = false;
+          packTimeout = null;
+          row = 0;
+          params = {
+            row: 0,
+            prevMinIndex: 0,
+            prevMaxIndex: 0,
+            i: 0
+          };
+          indexed = [];
+          pack($this, calculateOffset, params, options);
+        }, 2000);
+      });
+    }
 
-        animateIn($this, {
-          opacity: 1,
-          marginTop: '+=' + offsetY
-        }, function() {
-          calculateOffset($content, origin, prevMinIndex, prevMaxIndex, i + 1);
+    // Gather all assets in the element
+    var selector = 'img, embed, iframe, audio, video, div';
+    var $assets = $this
+      .children()
+      .not(options.cssSelector)
+      .find(selector);
+    var $content = $this
+      .find(':not(' + selector + ')');
+
+    var loadedImgs = 0;
+
+    // Make sure all the elements are loaded before we start packing
+    if ($assets.length > 0) {
+      $assets.each(function(i) {
+        if (base.stopped) return;
+        
+        var $asset = $(this).load(function() {
+          if (base.stopped) return;
+          animateIn($asset);
+          loadedImgs++;
+          if (loadedImgs >= $assets.length) {
+            pack($this, calculateOffset, params, options);
+          }
         });
+      });
+    } else {
+      pack($this, calculateOffset, params, options);
+    }
 
+    // This measures the distance between the current child element and the
+    // element `relative`ly above it. Then animates to the pack.
+    function calculateOffset($content, origin, prevMinIndex, prevMaxIndex, i) {
+
+      if (i >= $content.length) {
+        if (indexed[prevThisIndex]) { // update
+          indexed[prevThisIndex] = $.extend(indexed[prevThisIndex], params);
+        } else {  // push a new instance
+          indexed.push($.extend({ dom: $content.parent('div')[0] }, params));
+        }
+        options.complete.apply(this);
+        removeLoader(options);
+        return;
+      } else if (resizing && options.fluid) {
+        removeLoader(options);
+        return;
       }
 
-    });
+      var $this = $($content[i]); 
+      var $prev = $($content[i - 1]);
+      var x1 = $this.offset().left, x2 = x1 + $this.outerWidth(),
+          y1 = $this.offset().top, y2 = y1 + $this.outerHeight();
+
+      if ($prev.length > 0) {
+        if (x1 < $prev.offset().left && i > 0 && i !== params.i) {
+          row++;
+          params.row = row;
+          params.prevMinIndex = prevMinIndex = prevMaxIndex;
+          params.prevMaxIndex = prevMaxIndex = i - 1;
+          params.i = i;
+        }
+      }
+
+      var offsetY = 0;
+
+      if (row > 0) {
+
+        for (var j = prevMaxIndex; j >= prevMinIndex; j--) {
+
+          var $prev = $($content[j]);
+          var a1 = $prev.offset().left, a2 = a1 + $prev.outerWidth(),
+              b1 = $prev.offset().top, b2 = b1 + $prev.outerHeight();
+
+          if (a1 >= x2 || a2 <= x1) {
+            continue;
+          } else if (offsetY < b2) {
+            offsetY = b2;
+          }
+
+        }
+
+        offsetY = offsetY - y1;
+
+      } else {
+        offsetY = - parseInt($this.css('margin-top').toString().replace('px', ''));
+      }
+
+      animateIn($this, {
+        opacity: 1,
+        marginTop: '+=' + offsetY
+      }, function() {
+        calculateOffset($content, origin, prevMinIndex, prevMaxIndex, i + 1);
+      });
+
+    }
 
     // Appends a custom loader to the body and places at the top left corner of
     // the element invoking the plugin.
     function appendLoader($dom) {
 
+      var offset = $dom.offset();
+      
       var origin = {
-        x: $dom.offset().left + ($dom.outerWidth() - $dom.width()) / 2,
-        y: $dom.offset().top + ($dom.outerHeight() - $dom.height()) / 2
+        x: offset.left + ($dom.outerWidth() - $dom.width()) / 2,
+        y: offset.top + ($dom.outerHeight() - $dom.height()) / 2
       };
 
       var $loader = $('#stalactite-loader');
@@ -206,7 +225,10 @@
 
     }
 
+
     function animateIn($dom, params, callback) {
+      if (base.stopped) return;
+
       var args = $.extend({}, params, options.styles);
       if (args.opacity == $dom.css('opacity')) {  // Weird bug.
         delete args.opacity;
@@ -237,7 +259,6 @@
   // Before all assets are loaded, lets make sure that all children elements
   // within stalactite have the same structural css styling.
   function prep($dom, options) {
-
     var result = $dom
       .children()
       .not(options.cssSelector);
@@ -254,13 +275,11 @@
     }
 
     return result;
-
   }
 
   // As we go through and pack each element, let's make sure that they're marked
   // so as not to have to repeat packing logic.
   function pack($dom, callback, params, options) {
-
     var $content = $dom.children().addClass(options.cssSelector);
 
     var origin = {
@@ -269,18 +288,24 @@
     };
 
     callback.apply(this, [$content, origin, params.prevMinIndex, params.prevMaxIndex, params.i]);
-
   }
 
-  $.fn.stalactite.defaultOptions = {
-    duration: 150,
-    easing: 'swing',
-    cssPrefix: '.stalactite',
-    cssPrep: true,
-    fluid: true,
-    loader: '<img src="data:image/gif;base64, R0lGODlhEAAQAPQAAP///zMzM/n5+V9fX5ycnDc3N1FRUd7e3rm5uURERJGRkYSEhOnp6aysrNHR0WxsbHd3dwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh/hpDcmVhdGVkIHdpdGggYWpheGxvYWQuaW5mbwAh+QQJCgAAACwAAAAAEAAQAAAFUCAgjmRpnqUwFGwhKoRgqq2YFMaRGjWA8AbZiIBbjQQ8AmmFUJEQhQGJhaKOrCksgEla+KIkYvC6SJKQOISoNSYdeIk1ayA8ExTyeR3F749CACH5BAkKAAAALAAAAAAQABAAAAVoICCKR9KMaCoaxeCoqEAkRX3AwMHWxQIIjJSAZWgUEgzBwCBAEQpMwIDwY1FHgwJCtOW2UDWYIDyqNVVkUbYr6CK+o2eUMKgWrqKhj0FrEM8jQQALPFA3MAc8CQSAMA5ZBjgqDQmHIyEAIfkECQoAAAAsAAAAABAAEAAABWAgII4j85Ao2hRIKgrEUBQJLaSHMe8zgQo6Q8sxS7RIhILhBkgumCTZsXkACBC+0cwF2GoLLoFXREDcDlkAojBICRaFLDCOQtQKjmsQSubtDFU/NXcDBHwkaw1cKQ8MiyEAIfkECQoAAAAsAAAAABAAEAAABVIgII5kaZ6AIJQCMRTFQKiDQx4GrBfGa4uCnAEhQuRgPwCBtwK+kCNFgjh6QlFYgGO7baJ2CxIioSDpwqNggWCGDVVGphly3BkOpXDrKfNm/4AhACH5BAkKAAAALAAAAAAQABAAAAVgICCOZGmeqEAMRTEQwskYbV0Yx7kYSIzQhtgoBxCKBDQCIOcoLBimRiFhSABYU5gIgW01pLUBYkRItAYAqrlhYiwKjiWAcDMWY8QjsCf4DewiBzQ2N1AmKlgvgCiMjSQhACH5BAkKAAAALAAAAAAQABAAAAVfICCOZGmeqEgUxUAIpkA0AMKyxkEiSZEIsJqhYAg+boUFSTAkiBiNHks3sg1ILAfBiS10gyqCg0UaFBCkwy3RYKiIYMAC+RAxiQgYsJdAjw5DN2gILzEEZgVcKYuMJiEAOwAAAAAAAAAAAA==" />',
-    styles: {},
-    complete: function(value) { return value; }
+  $.stalactite.defaultOptions = {
+    'duration': 150,
+    'easing': 'swing',
+    'cssPrefix': '.stalactite',
+    'cssPrep': true,
+    'fluid': true,
+    'loader': '<img src="data:image/gif;base64, R0lGODlhEAAQAPQAAP///zMzM/n5+V9fX5ycnDc3N1FRUd7e3rm5uURERJGRkYSEhOnp6aysrNHR0WxsbHd3dwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh/hpDcmVhdGVkIHdpdGggYWpheGxvYWQuaW5mbwAh+QQJCgAAACwAAAAAEAAQAAAFUCAgjmRpnqUwFGwhKoRgqq2YFMaRGjWA8AbZiIBbjQQ8AmmFUJEQhQGJhaKOrCksgEla+KIkYvC6SJKQOISoNSYdeIk1ayA8ExTyeR3F749CACH5BAkKAAAALAAAAAAQABAAAAVoICCKR9KMaCoaxeCoqEAkRX3AwMHWxQIIjJSAZWgUEgzBwCBAEQpMwIDwY1FHgwJCtOW2UDWYIDyqNVVkUbYr6CK+o2eUMKgWrqKhj0FrEM8jQQALPFA3MAc8CQSAMA5ZBjgqDQmHIyEAIfkECQoAAAAsAAAAABAAEAAABWAgII4j85Ao2hRIKgrEUBQJLaSHMe8zgQo6Q8sxS7RIhILhBkgumCTZsXkACBC+0cwF2GoLLoFXREDcDlkAojBICRaFLDCOQtQKjmsQSubtDFU/NXcDBHwkaw1cKQ8MiyEAIfkECQoAAAAsAAAAABAAEAAABVIgII5kaZ6AIJQCMRTFQKiDQx4GrBfGa4uCnAEhQuRgPwCBtwK+kCNFgjh6QlFYgGO7baJ2CxIioSDpwqNggWCGDVVGphly3BkOpXDrKfNm/4AhACH5BAkKAAAALAAAAAAQABAAAAVgICCOZGmeqEAMRTEQwskYbV0Yx7kYSIzQhtgoBxCKBDQCIOcoLBimRiFhSABYU5gIgW01pLUBYkRItAYAqrlhYiwKjiWAcDMWY8QjsCf4DewiBzQ2N1AmKlgvgCiMjSQhACH5BAkKAAAALAAAAAAQABAAAAVfICCOZGmeqEgUxUAIpkA0AMKyxkEiSZEIsJqhYAg+boUFSTAkiBiNHks3sg1ILAfBiS10gyqCg0UaFBCkwy3RYKiIYMAC+RAxiQgYsJdAjw5DN2gILzEEZgVcKYuMJiEAOwAAAAAAAAAAAA==" />',
+    'styles': {},
+    'complete': function(value) { return value; }
   };
+  
+  $.fn.stalactite = function(options){
+    return this.each(function(){
+      (new $.stalactite(this, options));            
+    });
+  };
+  
 
 })(jQuery);
